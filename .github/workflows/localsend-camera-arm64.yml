@@ -18,8 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Checkout LocalSend source
-        run: git clone --depth 1 https://github.com/localsend/localsend.git localsend
+        run: git clone --depth 1 --branch chatgpt/localsend-chat-full-source-20261031 https://github.com/MinsGoing/Test.git localsend
       - name: Add camera capture to Android send picker
+        if: false
         run: |
           cd localsend
           python3 - <<'PY'
@@ -66,6 +67,7 @@ jobs:
           p.write_text(s)
           PY
       - name: Add chat conversation screen
+        if: false
         run: |
           cp localsend_chat/chat_send_page.dart localsend/chat_send_page.dart
           cp localsend_chat/apply_chat.py localsend/apply_chat.py
