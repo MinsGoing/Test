@@ -30,8 +30,12 @@ jobs:
         run: |
           Copy-Item localsend_chat/chat_send_page.dart localsend/chat_send_page.dart
           Copy-Item localsend_chat/apply_chat.py localsend/apply_chat.py
+          Copy-Item localsend_chat/apply_receive_chat.py localsend/apply_receive_chat.py
           Push-Location localsend
           python apply_chat.py
+          if ($LASTEXITCODE -ne 0) { throw 'Apply chat UI failed' }
+          python apply_receive_chat.py
+          if ($LASTEXITCODE -ne 0) { throw 'Apply receive-to-chat failed' }
           Pop-Location
       - name: Configure Flutter
         uses: subosito/flutter-action@v2
@@ -67,7 +71,7 @@ jobs:
       - name: Dart format and static analysis
         working-directory: localsend/app
         run: |
-          dart format lib/pages/chat_send_page.dart lib/pages/tabs/send_tab_vm.dart lib/provider/network/send_provider.dart
+          dart format lib/pages/chat_send_page.dart lib/pages/receive_page.dart lib/pages/progress_page.dart lib/provider/network/server/controller/receive_controller.dart lib/pages/tabs/send_tab_vm.dart lib/provider/network/send_provider.dart
           flutter analyze --no-pub
           if ($LASTEXITCODE -ne 0) { throw 'Flutter analyze failed' }
       - name: Build Windows Release x64
