@@ -575,6 +575,14 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                             const SizedBox(width: 8),
                             FilledButton(onPressed: _acceptIncomingFiles, child: const Text('接收文件')),
                           ],
+                        )
+                      else if (inbound.status == SessionStatus.finishedWithErrors)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => ref.notifier(serverProvider).closeSession(),
+                            child: const Text('关闭'),
+                          ),
                         ),
                     ],
                   ),
