@@ -762,9 +762,10 @@ void _cancelBySender(ServerUtils server) {
 
   TransferNotification.stop(receiveSession.sessionId);
 
-  if (receiveSession.status == SessionStatus.waiting) {
-    // received cancel during accept/decline
-    // pop just in case if user is in [ReceiveOptionsPage]
+  final inlineChat = receiveSession.sender.fingerprint.isNotEmpty &&
+      activeChatFingerprint.value == receiveSession.sender.fingerprint;
+  if (receiveSession.status == SessionStatus.waiting && !inlineChat) {
+    // Only legacy ReceivePage uses route-based confirmation.
     Routerino.context.popUntil(ReceivePage);
   }
 
@@ -776,6 +777,14 @@ void _cancelBySender(ServerUtils server) {
       ),
     ),
   );
+  if (inlineChat) {
+    // Dismiss the in-chat transfer card, never pop the conversation route.
+    Future.delayed(Duration.zero, () {
+      if (server.getStateOrNull()?.session?.sessionId == receiveSession.sessionId) {
+        server.ref.notifier(serverProvider).closeSession();
+      }
+    });
+  }
 }
 
 extension on ReceiveSessionState {
