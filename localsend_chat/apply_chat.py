@@ -1,7 +1,7 @@
 from pathlib import Path
 
 page = Path('app/lib/pages/tabs/send_tab_vm.dart')
-src = page.read_text()
+src = page.read_text(encoding='utf-8')
 src = src.replace(
     "import 'package:localsend_app/pages/progress_page.dart';",
     "import 'package:localsend_app/pages/chat_send_page.dart';\nimport 'package:localsend_app/pages/progress_page.dart';",
@@ -57,10 +57,10 @@ src = replace_between(
     },
 """,
 )
-page.write_text(src)
+page.write_text(src, encoding='utf-8')
 
 send = Path('app/lib/provider/network/send_provider.dart')
-src = send.read_text()
+src = send.read_text(encoding='utf-8')
 old = """    required List<CrossFile> files,
     required bool background,
   }) async {"""
@@ -82,11 +82,11 @@ new = """    onCreated?.call(sessionId);
           sessionId: sessionId,"""
 assert src.count(old) == 1
 src = src.replace(old, new, 1)
-send.write_text(src)
+send.write_text(src, encoding='utf-8')
 
 chat = Path('app/lib/pages/chat_send_page.dart')
 chat.parent.mkdir(parents=True, exist_ok=True)
-text = Path('chat_send_page.dart').read_text()
+text = Path('chat_send_page.dart').read_text(encoding='utf-8')
 # No conversion needed: flow analysis promotes non-null image paths.
-chat.write_text(text)
+chat.write_text(text, encoding='utf-8')
 print('Chat-style sending integrated into app.')
