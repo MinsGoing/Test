@@ -178,10 +178,12 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       }
       _reportError();
     } finally {
-      if (mounted) setState(() {
-        _sending = false;
-        _activeSessionId = null;
-      });
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _activeSessionId = null;
+        });
+      }
       try {
         await _persist();
       } catch (_) {
