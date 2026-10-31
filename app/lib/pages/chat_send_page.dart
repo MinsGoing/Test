@@ -183,6 +183,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
   static const _maxRecords = 200;
 
   final _textController = TextEditingController();
+  final _queuedTexts = Queue<String>();
   final _records = <_ChatRecord>[];
   bool _loading = true;
   bool _sending = false;
@@ -196,11 +197,17 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
   @override
   void initState() {
     super.initState();
+    activeChatFingerprint.value = widget.target.fingerprint.isEmpty ? null : widget.target.fingerprint;
+    chatReceiveRevision.addListener(_onIncomingUpdate);
     unawaited(_restore());
   }
 
   @override
   void dispose() {
+    chatReceiveRevision.removeListener(_onIncomingUpdate);
+    if (activeChatFingerprint.value == widget.target.fingerprint) {
+      activeChatFingerprint.value = null;
+    }
     _textController.dispose();
     super.dispose();
   }
@@ -227,8 +234,33 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     }
     if (!mounted) return;
     setState(() => _loading = false);
+    unawaited(_refreshIncoming());
     if (widget.initialFiles.isNotEmpty) {
       await _sendFiles(widget.initialFiles, clearSelection: true);
+    }
+  }
+
+  void _onIncomingUpdate() {
+    if (!_loading) unawaited(_refreshIncoming());
+  }
+
+  Future<void> _refreshIncoming() async {
+    if (!mounted || widget.target.fingerprint.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_incomingHistoryKey(widget.target.fingerprint));
+      if (raw == null) return;
+      final incoming = (jsonDecode(raw) as List<dynamic>)
+          .map((entry) => _ChatRecord.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _records.removeWhere((record) => record.direction == 'in');
+        _records.addAll(incoming);
+        _records.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      });
+    } catch (_) {
+      // Corrupt history must not stop a live conversation.
     }
   }
 
