@@ -10,6 +10,9 @@ def edit(path, changes):
     file.write_text(source, encoding='utf-8')
 
 controller = 'app/lib/provider/network/server/controller/receive_controller.dart'
+if 'recordIncomingChat(' in Path(controller).read_text(encoding='utf-8'):
+    print('Receive chat patch is already applied.')
+    raise SystemExit(0)
 edit(controller, [
     (
         "import 'package:localsend_app/pages/home_page.dart';",
