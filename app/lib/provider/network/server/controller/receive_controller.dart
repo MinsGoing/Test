@@ -127,6 +127,62 @@ class ReceiveController {
           statuses: {for (final file in files.values) file.id: FileStatus.queue},
         );
 
+    final message = server.getState().session?.message;
+    if (message != null) {
+      // Message already received
+      await server.ref
+          .redux(receiveHistoryProvider)
+          .dispatchAsync(
+            AddHistoryEntryAction(
+              entryId: const Uuid().v4(),
+              fileName: message,
+              fileType: FileType.text,
+              path: null,
+              savedToGallery: false,
+              isMessage: true,
+              fileSize: utf8.encode(message).length,
+              senderAlias: server.getState().session!.senderAlias,
+              timestamp: DateTime.now().toUtc(),
+            ),
+          );
+      try {
+        await recordIncomingChat(
+          fingerprint: senderFingerprint,
+          entryId: const Uuid().v4(),
+          name: message,
+          fileType: FileType.text,
+          path: null,
+          message: message,
+        );
+      } catch (e) {
+        _logger.warning('Unable to store received chat message', e);
+      }
+    }
+
+
+    // A matching open conversation handles incoming content without
+    // interrupting the message composer with ReceivePage/ProgressPage.
+    final inChat = senderFingerprint.isNotEmpty &&
+        activeChatFingerprint.value == senderFingerprint;
+    if (inChat) {
+      if (message != null) {
+        // Text has already been delivered in its transfer preview.
+        await acceptFileRequest({});
+        return;
+      }
+
+      // Small images appear directly. Other attachments require consent in
+      // the conversation, without hijacking navigation.
+      const maxAutoImageBytes = 20 * 1024 * 1024;
+      final autoImages = files.isNotEmpty &&
+          files.values.every((file) => file.fileType == FileType.image && file.size >= 0) &&
+          files.values.fold<int>(0, (sum, file) => sum + file.size) <= maxAutoImageBytes;
+      if (autoImages) {
+        await acceptFileRequest({for (final file in files.values) file.id: file.fileName});
+      }
+      return;
+    }
+
     bool quickSave = settings.quickSave && server.getState().session?.message == null;
     final quickSaveFromFavorites = settings.quickSaveFromFavorites && server.getState().session?.message == null;
     if (quickSaveFromFavorites) {
@@ -160,38 +216,6 @@ class ReceiveController {
 
     if (checkPlatformHasTray() && (await windowManager.isMinimized() || !(await windowManager.isVisible()) || !(await windowManager.isFocused()))) {
       await showFromTray();
-    }
-
-    final message = server.getState().session?.message;
-    if (message != null) {
-      // Message already received
-      await server.ref
-          .redux(receiveHistoryProvider)
-          .dispatchAsync(
-            AddHistoryEntryAction(
-              entryId: const Uuid().v4(),
-              fileName: message,
-              fileType: FileType.text,
-              path: null,
-              savedToGallery: false,
-              isMessage: true,
-              fileSize: utf8.encode(message).length,
-              senderAlias: server.getState().session!.senderAlias,
-              timestamp: DateTime.now().toUtc(),
-            ),
-          );
-      try {
-        await recordIncomingChat(
-          fingerprint: senderFingerprint,
-          entryId: const Uuid().v4(),
-          name: message,
-          fileType: FileType.text,
-          path: null,
-          message: message,
-        );
-      } catch (e) {
-        _logger.warning('Unable to store received chat message', e);
-      }
     }
 
     final receiveProvider = ViewProvider((ref) {
@@ -446,6 +470,14 @@ class ReceiveController {
           quickSave = true;
         }
       }
+      if (!hasError &&
+          session.sender.fingerprint.isNotEmpty &&
+          activeChatFingerprint.value == session.sender.fingerprint) {
+        Future.delayed(Duration.zero, closeSession);
+        _logger.info('Received attachments inline without navigating away from chat.');
+        return;
+      }
+
       if (quickSave) {
         // close the session **after** the response has been sent
         Future.delayed(Duration.zero, () {
