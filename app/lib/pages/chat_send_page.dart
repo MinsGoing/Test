@@ -351,6 +351,10 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       if (clearSelection && mounted) {
         ref.redux(selectedSendingFilesProvider).dispatch(ClearSelectionAction());
       }
+      if (mounted && _queuedTexts.isNotEmpty) {
+        final next = _queuedTexts.removeFirst();
+        unawaited(_sendTextValue(next));
+      }
     }
   }
 
@@ -362,8 +366,16 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
 
   Future<void> _sendText() async {
     final value = _textController.text.trim();
-    if (value.isEmpty || _sending || _loading) return;
+    if (value.isEmpty || _loading) return;
     _textController.clear();
+    if (_sending) {
+      setState(() => _queuedTexts.add(value));
+      return;
+    }
+    await _sendTextValue(value);
+  }
+
+  Future<void> _sendTextValue(String value) async {
     final bytes = utf8.encode(value);
     final file = CrossFile(
       name: 'message_${DateTime.now().microsecondsSinceEpoch}.txt',
@@ -537,7 +549,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                   Expanded(
                     child: TextField(
                       controller: _textController,
-                      enabled: !_sending && !_loading,
+                      enabled: !_loading,
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
@@ -554,7 +566,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                   const SizedBox(width: 5),
                   IconButton.filled(
                     tooltip: '发送',
-                    onPressed: _sending || _loading ? null : _sendText,
+                    onPressed: _loading ? null : _sendText,
                     icon: const Icon(Icons.send, size: 19),
                   ),
                 ],
