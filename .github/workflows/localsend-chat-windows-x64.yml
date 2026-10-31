@@ -25,8 +25,9 @@ jobs:
       - name: Checkout modified chat sources
         uses: actions/checkout@v4
       - name: Clone LocalSend upstream
-        run: git clone --depth 1 https://github.com/localsend/localsend.git localsend
+        run: git clone --depth 1 --branch chatgpt/localsend-chat-full-source-20261031 https://github.com/MinsGoing/Test.git localsend
       - name: Apply chat sending UI (Windows, text, images, zoom)
+        if: false
         run: |
           Copy-Item localsend_chat/chat_send_page.dart localsend/chat_send_page.dart
           Copy-Item localsend_chat/apply_chat.py localsend/apply_chat.py
