@@ -22,6 +22,28 @@ message/file bubbles, stored local transfer history, photo capture on
 Android, image selection and file sending on Windows, and click/tap to
 zoom picture previews.
 
+### Conversation-first receiving (2026-10-31 redesign)
+
+- **While a chat is open for a verified sender**: received text messages
+  are acknowledged and appended live without displaying the legacy
+  ReceivePage dialog; pictures totaling at most 20 MiB are also received
+  inline automatically. Larger pictures and non-image files show an
+  in-chat **Accept / Decline** card instead of navigating away.
+- **Outside that chat**: original LocalSend receive confirmation,
+  security handling, and progress screens remain available.
+- Incoming items are shown on the left, outgoing items on the right.
+  Newly received content immediately refreshes the conversation.
+- Sent messages entered during an ongoing transfer are queued locally
+  and sent sequentially. The text composer stays enabled.
+- Received files can be reopened from chat bubbles when their original
+  saved file still exists. Pictures prefer original resolution and
+  retain a compressed local preview as a fallback.
+- A canceled or failed inline transfer no longer navigates away from
+  the chat; the cancellation card is removed or errors can be dismissed.
+- LocalSend continues to use transfer sessions, **not an always-on
+  messaging channel**. Conversation history is local to each device.
+  There is no cloud or cross-device history synchronization.
+
 **Build requirements:** Flutter 3.41.9, Rust 1.97.1,
 Windows x64 MSVC toolchain for Windows, or Android SDK + JDK 17 +
 Rust Android arm64 target for Android.
