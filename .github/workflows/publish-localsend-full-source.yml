@@ -88,6 +88,9 @@ jobs:
           Android release signing must be configured with your own key.
           Windows unsigned EXEs may trigger Microsoft SmartScreen warnings.
           No private signing keys or credentials are stored here.
+          Upstream GitHub Actions workflow examples have been preserved under
+          \`custom_build/upstream_workflows/\` instead of \`.github/workflows/\`
+          because this branch is published using an automation token.
 
           This remains a LocalSend-based file transfer client: messages use the
           existing file transfer protocol, and history is stored locally rather
@@ -99,6 +102,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd localsend
+          # The GitHub App token cannot write active GitHub workflow files.
+          # Preserve upstream workflows as sources, outside the protected path.
+          if [ -d .github/workflows ]; then
+            mv .github/workflows custom_build/upstream_workflows
+          fi
           # The upstream checkout is shallow. Start a fresh root commit so
           # no missing upstream objects are required in the target repository.
           rm -rf .git
