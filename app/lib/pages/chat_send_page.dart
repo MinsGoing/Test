@@ -492,7 +492,9 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     if (session == null ||
         session.sender.fingerprint != widget.target.fingerprint ||
         session.status != SessionStatus.waiting ||
-        session.message != null) return;
+        session.message != null) {
+      return;
+    }
     await ref.notifier(serverProvider).acceptFileRequest({
       for (final file in session.files.values) file.file.id: file.file.fileName,
     });
@@ -536,7 +538,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
         child: Column(
           children: [
             if (_loading) const LinearProgressIndicator(),
-            if (showIncoming && inbound != null)
+            if (showIncoming)
               Card(
                 margin: const EdgeInsets.fromLTRB(12, 6, 12, 3),
                 child: Padding(
