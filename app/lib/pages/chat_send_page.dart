@@ -13,6 +13,7 @@ import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
+import 'package:localsend_app/util/native/open_file.dart';
 import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/cross_file_converters.dart';
 import 'package:localsend_isolates/model/device.dart';
@@ -39,6 +40,7 @@ class _ChatRecord {
   final String type;
   final String direction;
   String? path;
+  final String? originalPath;
   final int timestamp;
   String status;
 
@@ -49,6 +51,7 @@ class _ChatRecord {
     required this.type,
     required this.direction,
     required this.path,
+    this.originalPath,
     required this.timestamp,
     required this.status,
   });
@@ -60,6 +63,7 @@ class _ChatRecord {
         type: json['type'] as String? ?? 'other',
         direction: json['direction'] as String? ?? 'out',
         path: json['path'] as String?,
+        originalPath: json['originalPath'] as String?,
         timestamp: json['timestamp'] as int,
         status: json['status'] as String? ?? 'failed',
       );
@@ -71,6 +75,7 @@ class _ChatRecord {
         'type': type,
         'direction': direction,
         'path': path,
+        'originalPath': originalPath,
         'timestamp': timestamp,
         'status': status,
       };
@@ -137,6 +142,7 @@ Future<void> _writeIncomingChat({
       type: fileType.name,
       direction: 'in',
       path: savedPreview,
+      originalPath: path,
       timestamp: DateTime.now().millisecondsSinceEpoch,
       status: 'received',
     ),
@@ -614,7 +620,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(32),
-                        child: Text('开始向这台设备发送文字、照片或文件。\n发送记录仅保存在本机。', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+                        child: Text('与这台设备交流文字、照片和文件。\n收发记录只保存在本机。', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
                       ),
                     )
                   : ListView.builder(
