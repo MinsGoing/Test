@@ -98,6 +98,10 @@ def edit(path, changes):
     file = Path(path)
     source = file.read_text(encoding='utf-8')
     for before, after in changes:
+        if 'timestamp: DateTime.now().toUtc()' in before:
+            # Normalize indentation in generated multiline Dart hunks.
+            before = '\n'.join(line[1:] if line.startswith(' ') else line for line in before.split('\n'))
+            after = '\n'.join(line[1:] if line.startswith(' ') else line for line in after.split('\n'))
         count = source.count(before)
         assert count == 1, f'{path}: expected 1 match, found {count}: {before[:100]!r}'
         source = source.replace(before, after, 1)
@@ -253,4 +257,3 @@ edit(progress, [
     ),
 ])
 print('Receive-to-chat navigation and history integration applied.')
-
