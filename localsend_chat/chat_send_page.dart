@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -150,7 +151,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     });
     try {
       // The normal transfer cache is deleted after a successful send.
-      // Keep compact previews under application support so chat history lasts.
+      // Keep optimized previews under application support so chat history lasts.
       for (var i = 0; i < files.length; i++) {
         if (files[i].fileType == FileType.image) {
           entries[i].path = await _savePreview(files[i], entries[i].id);
@@ -213,7 +214,8 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       final preview = await Isolate.run(() {
         final decoded = img.decodeImage(bytes);
         if (decoded == null) return null;
-        return img.encodeJpg(img.copyResize(decoded, width: 320), quality: 75);
+        final resized = decoded.width > 1600 ? img.copyResize(decoded, width: 1600) : decoded;
+        return img.encodeJpg(resized, quality: 82);
       });
       if (preview == null) return null;
       final support = await getApplicationSupportDirectory();
@@ -247,6 +249,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
   }
 
   Future<void> _takePhoto() async {
+    if (!Platform.isAndroid) return;
     try {
       final photo = await ImagePicker().pickImage(source: ImageSource.camera);
       if (photo != null && mounted) {
@@ -259,7 +262,15 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
 
   Future<void> _pickPhotos() async {
     try {
-      final images = await ImagePicker().pickMultiImage();
+      // The native image picker is Android-only in this build.
+      // file_selector uses the system's file dialog on Windows.
+      final images = Platform.isAndroid
+          ? await ImagePicker().pickMultiImage()
+          : await openFiles(
+              acceptedTypeGroups: [
+                const XTypeGroup(label: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']),
+              ],
+            );
       if (images.isEmpty || !mounted) return;
       final files = <CrossFile>[];
       for (final image in images) {
@@ -273,13 +284,20 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
 
   Future<void> _pickFiles() async {
     try {
-      final selected = await android_channel.pickFilesAndroid();
-      if (selected == null || selected.isEmpty || !mounted) return;
       final files = <CrossFile>[];
-      for (final item in selected) {
-        files.add(await CrossFileConverters.convertFileInfo(item));
+      if (Platform.isAndroid) {
+        final selected = await android_channel.pickFilesAndroid();
+        if (selected == null) return;
+        for (final item in selected) {
+          files.add(await CrossFileConverters.convertFileInfo(item));
+        }
+      } else {
+        final selected = await openFiles();
+        for (final item in selected) {
+          files.add(await CrossFileConverters.convertXFile(item));
+        }
       }
-      if (mounted) await _sendFiles(files);
+      if (files.isNotEmpty && mounted) await _sendFiles(files);
     } on PlatformException catch (e) {
       if (e.code != 'CANCELED') _reportError();
     } catch (_) {
@@ -295,17 +313,18 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera),
-              title: const Text('拍照发送'),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await _takePhoto();
-              },
-            ),
+            if (Platform.isAndroid)
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('拍照发送'),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await _takePhoto();
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('从相册选择'),
+              title: Text(Platform.isAndroid ? '从相册选择' : '选择图片'),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
                 await _pickPhotos();
@@ -416,6 +435,45 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     );
   }
 
+  Future<void> _showImageViewer(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.6,
+                maxScale: 5,
+                panEnabled: true,
+                scaleEnabled: true,
+                child: Center(
+                  child: Image.file(
+                    File(path),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Text('图片已不可用', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 14,
+              child: SafeArea(
+                child: IconButton.filledTonal(
+                  tooltip: '关闭预览',
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBubble(_ChatRecord item, ColorScheme scheme) {
     final when = DateTime.fromMillisecondsSinceEpoch(item.timestamp);
     final time = TimeOfDay.fromDateTime(when).format(context);
@@ -455,17 +513,24 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                     if (canShowImage)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 7),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.file(
-                            File(path),
-                            width: 180,
-                            height: 150,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const SizedBox(
-                              width: 180,
-                              height: 100,
-                              child: Center(child: Icon(Icons.image_not_supported_outlined)),
+                        child: Tooltip(
+                          message: '点击放大图片',
+                          child: InkWell(
+                            onTap: () => _showImageViewer(path),
+                            borderRadius: BorderRadius.circular(10),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.file(
+                                File(path),
+                                width: 180,
+                                height: 150,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => const SizedBox(
+                                  width: 180,
+                                  height: 100,
+                                  child: Center(child: Icon(Icons.image_not_supported_outlined)),
+                                ),
+                              ),
                             ),
                           ),
                         ),
