@@ -1,0 +1,114 @@
+name: Build LocalSend Chat Windows x64
+on:
+  push:
+    branches:
+      - chatgpt/localsend-camera-arm64-20261031
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localsend-chat-windows-x64
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Enable long file paths
+        run: git config --system core.longpaths true
+      - name: Checkout modified chat sources
+        uses: actions/checkout@v4
+      - name: Clone LocalSend upstream
+        run: git clone --depth 1 https://github.com/localsend/localsend.git localsend
+      - name: Apply chat sending UI (Windows, text, images, zoom)
+        run: |
+          Copy-Item localsend_chat/chat_send_page.dart localsend/chat_send_page.dart
+          Copy-Item localsend_chat/apply_chat.py localsend/apply_chat.py
+          Push-Location localsend
+          python apply_chat.py
+          Pop-Location
+      - name: Configure Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+      - name: Configure Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup target add x86_64-pc-windows-msvc --toolchain 1.97.1
+      - name: Generate MSIX helper used by upstream CMake
+        working-directory: localsend
+        run: |
+          $makepri = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\makepri.exe' | Select-Object -Last 1
+          if (-not $makepri) { throw 'Windows SDK makepri.exe not installed' }
+          & $makepri.FullName new /pr support\build\msix\content /cf support\build\msix\priconfig.xml /mn support\build\msix\content\AppxManifest.xml /of support\build\msix\content\resources.pri /o
+          if ($LASTEXITCODE -ne 0) { throw 'makepri failed' }
+          $makeappx = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\makeappx.exe' | Select-Object -Last 1
+          if (-not $makeappx) { throw 'Windows SDK makeappx.exe not installed' }
+          & $makeappx.FullName pack /o /d support\build\msix\content /nv /p app\windows\localsend_msix_helper.msix
+          if ($LASTEXITCODE -ne 0) { throw 'makeappx failed' }
+      - name: Resolve Flutter + Cargokit dependencies
+        working-directory: localsend
+        run: |
+          Push-Location app
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
+          Pop-Location
+          Push-Location packages/localsend_isolates/rust_builder/cargokit/build_tool
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Cargokit pub get failed' }
+          Pop-Location
+      - name: Dart format and static analysis
+        working-directory: localsend/app
+        run: |
+          dart format lib/pages/chat_send_page.dart lib/pages/tabs/send_tab_vm.dart lib/provider/network/send_provider.dart
+          flutter analyze --no-pub
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter analyze failed' }
+      - name: Build Windows Release x64
+        working-directory: localsend/app
+        run: |
+          flutter config --enable-windows-desktop
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed' }
+      - name: Prepare portable package and unsigned installer
+        working-directory: localsend
+        run: |
+          $release = Join-Path (Get-Location) 'app\build\windows\x64\runner\Release'
+          if (!(Test-Path (Join-Path $release 'localsend_app.exe'))) { throw 'Windows executable missing' }
+          Copy-Item support\build\windows\x64\msvcp140.dll $release
+          Copy-Item support\build\windows\x64\vcruntime140.dll $release
+          Copy-Item support\build\windows\x64\vcruntime140_1.dll $release
+          $toRemove = @('localsend_msix_helper.msix','install_msix_helper.ps1','localsend_app.exe.manifest')
+          foreach ($name in $toRemove) { Remove-Item (Join-Path $release $name) -ErrorAction SilentlyContinue }
+          Set-Content -Path (Join-Path $release 'settings.json') -Value '{}' -Encoding UTF8
+          Compress-Archive -Path (Join-Path $release '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'LocalSend-Chat-Windows-x64-Portable.zip') -CompressionLevel Optimal
+          $payload = Join-Path $env:RUNNER_TEMP 'localsend-chat-inno'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item (Join-Path $release '*') $payload -Recurse
+          Copy-Item app\assets\packaging\logo.ico $payload
+          $result = Join-Path $env:RUNNER_TEMP 'localsend-chat-inno-result'
+          New-Item -ItemType Directory -Force -Path $result | Out-Null
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+          iscc /DSkipSignTool /DSkipMsixHelper "/DPayloadDir=$payload" "/DResultDir=$result" support\scripts\compile_windows_exe-inno.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compiler failed' }
+          Copy-Item (Join-Path $result 'localsend.exe') (Join-Path $env:GITHUB_WORKSPACE 'LocalSend-Chat-Windows-x64-Setup.exe')
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalSend-Chat-Windows-x64-Setup
+          path: LocalSend-Chat-Windows-x64-Setup.exe
+          if-no-files-found: error
+      - name: Upload portable Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalSend-Chat-Windows-x64-Portable
+          path: LocalSend-Chat-Windows-x64-Portable.zip
+          if-no-files-found: error
