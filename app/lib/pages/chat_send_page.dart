@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -10,6 +11,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
+import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
 import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/cross_file_converters.dart';
@@ -20,8 +22,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:refena_flutter/refena_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Outgoing transfer history. Records describe what was sent, not message
-/// synchronization with the recipient. Metadata is kept on this device only.
+/// Route inbound requests inline only for the matching, visible conversation.
+final ValueNotifier<String?> activeChatFingerprint = ValueNotifier<String?>(null);
+
+/// Notify open chat screens whenever local received history changes.
+final ValueNotifier<int> chatReceiveRevision = ValueNotifier<int>(0);
+
+/// Serialize writes so concurrent received images cannot erase each other.
+Future<void> _lastIncomingWrite = Future<void>.value();
+
+/// Locally persisted send and receive history, not remote synchronization.
 class _ChatRecord {
   final String id;
   final String name;
@@ -79,6 +89,28 @@ Future<void> recordIncomingChat({
   required String? path,
   required String? message,
 }) async {
+  final next = _lastIncomingWrite.catchError((Object _) {}).then(
+    (_) => _writeIncomingChat(
+      fingerprint: fingerprint,
+      entryId: entryId,
+      name: name,
+      fileType: fileType,
+      path: path,
+      message: message,
+    ),
+  );
+  _lastIncomingWrite = next;
+  await next;
+}
+
+Future<void> _writeIncomingChat({
+  required String fingerprint,
+  required String entryId,
+  required String name,
+  required FileType fileType,
+  required String? path,
+  required String? message,
+}) async {
   if (fingerprint.isEmpty) return;
   final prefs = await SharedPreferences.getInstance();
   final key = _incomingHistoryKey(fingerprint);
@@ -111,6 +143,7 @@ Future<void> recordIncomingChat({
   );
   if (records.length > 200) records.removeRange(0, records.length - 200);
   await prefs.setString(key, jsonEncode(records.map((e) => e.toJson()).toList()));
+  chatReceiveRevision.value++;
 }
 
 /// Save a display preview independently of the transfer's temporary file.
