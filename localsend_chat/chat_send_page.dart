@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -85,7 +86,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
   @override
   void initState() {
     super.initState();
-    _restore();
+    unawaited(_restore());
   }
 
   @override
@@ -156,7 +157,9 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
           background: true,
           onCreated: (id) {
             sessionId = id;
-            if (mounted) setState(() => _activeSessionId = id);
+            if (mounted) {
+              setState(() => _activeSessionId = id);
+            }
           },
         );
         // A successful background session is removed by SendNotifier.
@@ -425,7 +428,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                             width: 180,
                             height: 150,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const SizedBox(
+                            errorBuilder: (_, _, _) => const SizedBox(
                               width: 180,
                               height: 100,
                               child: Center(child: Icon(Icons.image_not_supported_outlined)),
