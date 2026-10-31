@@ -27,6 +27,7 @@ class _ChatRecord {
   final String name;
   final String? text;
   final String type;
+  final String direction;
   String? path;
   final int timestamp;
   String status;
@@ -36,6 +37,7 @@ class _ChatRecord {
     required this.name,
     required this.text,
     required this.type,
+    required this.direction,
     required this.path,
     required this.timestamp,
     required this.status,
@@ -46,6 +48,7 @@ class _ChatRecord {
         name: json['name'] as String,
         text: json['text'] as String?,
         type: json['type'] as String? ?? 'other',
+        direction: json['direction'] as String? ?? 'out',
         path: json['path'] as String?,
         timestamp: json['timestamp'] as int,
         status: json['status'] as String? ?? 'failed',
@@ -56,10 +59,80 @@ class _ChatRecord {
         'name': name,
         'text': text,
         'type': type,
+        'direction': direction,
         'path': path,
         'timestamp': timestamp,
         'status': status,
       };
+}
+
+
+String _incomingHistoryKey(String fingerprint) => 'localsend_camera_chat_received_v1_$fingerprint';
+
+/// Persist an accepted incoming file/message under its verified sender ID.
+/// This history is local to the receiving device; no protocol changes.
+Future<void> recordIncomingChat({
+  required String fingerprint,
+  required String entryId,
+  required String name,
+  required FileType fileType,
+  required String? path,
+  required String? message,
+}) async {
+  if (fingerprint.isEmpty) return;
+  final prefs = await SharedPreferences.getInstance();
+  final key = _incomingHistoryKey(fingerprint);
+  final raw = prefs.getString(key);
+  final records = <_ChatRecord>[];
+  if (raw != null) {
+    try {
+      final existing = jsonDecode(raw) as List<dynamic>;
+      records.addAll(existing.map((item) => _ChatRecord.fromJson(Map<String, dynamic>.from(item as Map))));
+    } catch (_) {
+      // Damaged history must not interrupt the actual file receive.
+    }
+  }
+  if (records.any((entry) => entry.id == entryId)) return;
+  String? savedPreview;
+  if (fileType == FileType.image && path != null && !path.startsWith('content://')) {
+    savedPreview = await _buildChatPreview(path, 'received_$entryId');
+  }
+  records.add(
+    _ChatRecord(
+      id: entryId,
+      name: name,
+      text: message,
+      type: fileType.name,
+      direction: 'in',
+      path: savedPreview,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      status: 'received',
+    ),
+  );
+  if (records.length > 200) records.removeRange(0, records.length - 200);
+  await prefs.setString(key, jsonEncode(records.map((e) => e.toJson()).toList()));
+}
+
+/// Save a display preview independently of the transfer's temporary file.
+Future<String?> _buildChatPreview(String path, String recordId) async {
+  try {
+    final bytes = await File(path).readAsBytes();
+    final preview = await Isolate.run(() {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return null;
+      final resized = decoded.width > 1600 ? img.copyResize(decoded, width: 1600) : decoded;
+      return img.encodeJpg(resized, quality: 82);
+    });
+    if (preview == null) return null;
+    final support = await getApplicationSupportDirectory();
+    final previews = Directory('${support.path}/chat_sent_thumbnails');
+    await previews.create(recursive: true);
+    final output = File('${previews.path}/$recordId.jpg');
+    await output.writeAsBytes(preview, flush: true);
+    return output.path;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// A device-specific conversation screen for repeated LocalSend transfers.
@@ -107,6 +180,14 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
         final jsonList = jsonDecode(raw) as List<dynamic>;
         _records.addAll(jsonList.map((entry) => _ChatRecord.fromJson(Map<String, dynamic>.from(entry as Map))));
       }
+      // Keep received history in its own key so receive callbacks cannot
+      // overwrite outgoing messages written by an open chat screen.
+      final incoming = prefs.getString(_incomingHistoryKey(widget.target.fingerprint));
+      if (incoming != null) {
+        final jsonList = jsonDecode(incoming) as List<dynamic>;
+        _records.addAll(jsonList.map((entry) => _ChatRecord.fromJson(Map<String, dynamic>.from(entry as Map))));
+      }
+      _records.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     } catch (_) {
       // Broken or obsolete local history must not prevent file transfers.
       _records.clear();
@@ -120,7 +201,8 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
-    final snapshot = _records.length > _maxRecords ? _records.sublist(_records.length - _maxRecords) : _records;
+    final outgoing = _records.where((e) => e.direction != 'in').toList();
+    final snapshot = outgoing.length > _maxRecords ? outgoing.sublist(outgoing.length - _maxRecords) : outgoing;
     await prefs.setString(_historyKey, jsonEncode(snapshot.map((e) => e.toJson()).toList()));
   }
 
@@ -139,6 +221,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
           name: files[i].name,
           text: files[i].fileType == FileType.text && files[i].bytes != null ? utf8.decode(files[i].bytes!, allowMalformed: true) : null,
           type: files[i].fileType.name,
+          direction: 'out',
           path: null,
           timestamp: now,
           status: 'sending',
@@ -209,24 +292,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
   Future<String?> _savePreview(CrossFile file, String recordId) async {
     final path = file.path;
     if (path == null || path.startsWith('content://')) return null;
-    try {
-      final bytes = await File(path).readAsBytes();
-      final preview = await Isolate.run(() {
-        final decoded = img.decodeImage(bytes);
-        if (decoded == null) return null;
-        final resized = decoded.width > 1600 ? img.copyResize(decoded, width: 1600) : decoded;
-        return img.encodeJpg(resized, quality: 82);
-      });
-      if (preview == null) return null;
-      final support = await getApplicationSupportDirectory();
-      final previews = Directory('${support.path}/chat_sent_thumbnails');
-      await previews.create(recursive: true);
-      final output = File('${previews.path}/$recordId.jpg');
-      await output.writeAsBytes(preview, flush: true);
-      return output.path;
-    } catch (_) {
-      return null;
-    }
+    return _buildChatPreview(path, recordId);
   }
 
   Future<void> _sendText() async {
@@ -481,12 +547,13 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     final path = item.path;
     final canShowImage = isImage && path != null && !path.startsWith('content://');
     final title = item.text ?? item.name;
-    final status = switch (item.status) {
+    final isIncoming = item.direction == 'in';
+    final status = isIncoming ? '已接收' : switch (item.status) {
       'sent' => '已发送',
       'failed' => '未发送',
       _ => '发送中',
     };
-    final statusIcon = switch (item.status) {
+    final statusIcon = isIncoming ? Icons.download_done : switch (item.status) {
       'sent' => Icons.done_all,
       'failed' => Icons.error_outline,
       _ => Icons.schedule,
@@ -495,17 +562,20 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Align(
-        alignment: Alignment.centerRight,
+        alignment: isIncoming ? Alignment.centerLeft : Alignment.centerRight,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.82),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: isIncoming ? CrossAxisAlignment.start : CrossAxisAlignment.end,
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(16).copyWith(bottomRight: const Radius.circular(4)),
+                  color: isIncoming ? scheme.surfaceContainerHighest : scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16).copyWith(
+                    bottomRight: Radius.circular(isIncoming ? 16 : 4),
+                    bottomLeft: Radius.circular(isIncoming ? 4 : 16),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
