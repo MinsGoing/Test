@@ -673,7 +673,29 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     );
   }
 
-  Future<void> _showImageViewer(String path) async {
+  Future<void> _openReceivedFile(_ChatRecord item) async {
+    final path = item.originalPath;
+    if (path == null) return;
+    if (!path.startsWith('content://') && !await File(path).exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('原文件已移动或删除。')),
+        );
+      }
+      return;
+    }
+    final type = FileType.values.firstWhere(
+      (entry) => entry.name == item.type,
+      orElse: () => FileType.other,
+    );
+    if (mounted) await openFile(context, type, path);
+  }
+
+  Future<void> _showImageViewer(String path, {String? originalPath}) async {
+    final fullPath = originalPath != null && await File(originalPath).exists()
+        ? originalPath
+        : path;
+    if (!mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog.fullscreen(
@@ -688,7 +710,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                 scaleEnabled: true,
                 child: Center(
                   child: Image.file(
-                    File(path),
+                    File(fullPath),
                     fit: BoxFit.contain,
                     errorBuilder: (_, _, _) => const Text('图片已不可用', style: TextStyle(color: Colors.white)),
                   ),
@@ -758,7 +780,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                         child: Tooltip(
                           message: '点击放大图片',
                           child: InkWell(
-                            onTap: () => _showImageViewer(path),
+                            onTap: () => _showImageViewer(path, originalPath: item.originalPath),
                             borderRadius: BorderRadius.circular(10),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(10),
@@ -778,13 +800,23 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
                         ),
                       ),
                     if (item.text == null)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined, size: 19),
-                          const SizedBox(width: 7),
-                          Flexible(child: Text(title, maxLines: 3, overflow: TextOverflow.ellipsis)),
-                        ],
+                      InkWell(
+                        onTap: isIncoming && item.originalPath != null
+                            ? () => _openReceivedFile(item)
+                            : null,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(isImage ? Icons.image_outlined : Icons.insert_drive_file_outlined, size: 19),
+                            const SizedBox(width: 7),
+                            Flexible(child: Text(title, maxLines: 3, overflow: TextOverflow.ellipsis)),
+                            if (isIncoming && item.originalPath != null) ...[
+                              const SizedBox(width: 6),
+                              const Icon(Icons.open_in_new, size: 15),
+                            ],
+                          ],
+                        ),
                       )
                     else
                       SelectableText(title),
