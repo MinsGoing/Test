@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
@@ -14,6 +16,7 @@ import 'package:localsend_isolates/model/device.dart';
 import 'package:localsend_isolates/model/file_type.dart';
 import 'package:localsend_isolates/model/session_status.dart';
 import 'package:refena_flutter/refena_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Outgoing transfer history. Records describe what was sent, not message
@@ -23,7 +26,7 @@ class _ChatRecord {
   final String name;
   final String? text;
   final String type;
-  final String? path;
+  String? path;
   final int timestamp;
   String status;
 
@@ -135,7 +138,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
           name: files[i].name,
           text: files[i].fileType == FileType.text && files[i].bytes != null ? utf8.decode(files[i].bytes!, allowMalformed: true) : null,
           type: files[i].fileType.name,
-          path: files[i].fileType == FileType.image ? files[i].path : null,
+          path: null,
           timestamp: now,
           status: 'sending',
         ),
@@ -146,6 +149,13 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       _records.addAll(entries);
     });
     try {
+      // The normal transfer cache is deleted after a successful send.
+      // Keep compact previews under application support so chat history lasts.
+      for (var i = 0; i < files.length; i++) {
+        if (files[i].fileType == FileType.image) {
+          entries[i].path = await _savePreview(files[i], entries[i].id);
+        }
+      }
       await _persist();
       String? sessionId;
       final sender = ref.notifier(sendProvider);
@@ -192,6 +202,28 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       if (clearSelection && mounted) {
         ref.redux(selectedSendingFilesProvider).dispatch(ClearSelectionAction());
       }
+    }
+  }
+
+  Future<String?> _savePreview(CrossFile file, String recordId) async {
+    final path = file.path;
+    if (path == null || path.startsWith('content://')) return null;
+    try {
+      final bytes = await File(path).readAsBytes();
+      final preview = await Isolate.run(() {
+        final decoded = img.decodeImage(bytes);
+        if (decoded == null) return null;
+        return img.encodeJpg(img.copyResize(decoded, width: 320), quality: 75);
+      });
+      if (preview == null) return null;
+      final support = await getApplicationSupportDirectory();
+      final previews = Directory('${support.path}/chat_sent_thumbnails');
+      await previews.create(recursive: true);
+      final output = File('${previews.path}/$recordId.jpg');
+      await output.writeAsBytes(preview, flush: true);
+      return output.path;
+    } catch (_) {
+      return null;
     }
   }
 
