@@ -487,8 +487,35 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
     );
   }
 
+  Future<void> _acceptIncomingFiles() async {
+    final session = ref.read(serverProvider)?.session;
+    if (session == null ||
+        session.sender.fingerprint != widget.target.fingerprint ||
+        session.status != SessionStatus.waiting ||
+        session.message != null) return;
+    await ref.notifier(serverProvider).acceptFileRequest({
+      for (final file in session.files.values) file.file.id: file.file.fileName,
+    });
+  }
+
+  void _declineIncomingFiles() {
+    final session = ref.read(serverProvider)?.session;
+    if (session != null &&
+        session.sender.fingerprint == widget.target.fingerprint &&
+        session.status == SessionStatus.waiting) {
+      ref.notifier(serverProvider).declineFileRequest();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final inbound = ref.watch(serverProvider)?.session;
+    final showIncoming = inbound != null &&
+        inbound.sender.fingerprint == widget.target.fingerprint &&
+        inbound.message == null &&
+        (inbound.status == SessionStatus.waiting ||
+            inbound.status == SessionStatus.sending ||
+            inbound.status == SessionStatus.finishedWithErrors);
     final activeSession = ref.watch(sendProvider)[_activeSessionId];
     final waiting = activeSession?.status == SessionStatus.waiting;
     final sending = activeSession?.status == SessionStatus.sending;
@@ -509,6 +536,58 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
         child: Column(
           children: [
             if (_loading) const LinearProgressIndicator(),
+            if (showIncoming && inbound != null)
+              Card(
+                margin: const EdgeInsets.fromLTRB(12, 6, 12, 3),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.download_outlined, color: scheme.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              inbound.status == SessionStatus.waiting
+                                  ? '对方发送了 ${inbound.files.length} 个文件'
+                                  : inbound.status == SessionStatus.sending
+                                      ? '正在接收 ${inbound.files.length} 个文件…'
+                                      : '接收未全部完成',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        inbound.files.values.map((file) => file.file.fileName).take(3).join('、'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (inbound.status == SessionStatus.waiting)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(onPressed: _declineIncomingFiles, child: const Text('拒绝')),
+                            const SizedBox(width: 8),
+                            FilledButton(onPressed: _acceptIncomingFiles, child: const Text('接收文件')),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_queuedTexts.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text('排队待发送：${_queuedTexts.length} 条', style: Theme.of(context).textTheme.labelSmall),
+                ),
+              ),
             if (_sending && (waiting || sending))
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
