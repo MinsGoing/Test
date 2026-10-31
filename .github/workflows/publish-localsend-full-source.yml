@@ -1,0 +1,108 @@
+name: Publish Complete LocalSend Chat Source
+on:
+  push:
+    branches:
+      - chatgpt/localsend-camera-arm64-20261031
+    paths:
+      - localsend_chat/**
+      - .github/workflows/publish-localsend-full-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-localsend-full-source
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Create complete source branch in Test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout customization from Test
+        uses: actions/checkout@v4
+      - name: Clone complete upstream LocalSend source
+        run: git clone --depth 1 https://github.com/localsend/localsend.git localsend
+      - name: Apply outgoing and incoming chat customizations
+        run: |
+          cp localsend_chat/chat_send_page.dart localsend/chat_send_page.dart
+          cp localsend_chat/apply_chat.py localsend/apply_chat.py
+          (
+            cd localsend
+            python3 apply_chat.py
+            python3 ../localsend_chat/apply_camera.py
+            rm chat_send_page.dart apply_chat.py
+          )
+      - name: Include source provenance and build information
+        run: |
+          mkdir -p localsend/custom_build
+          cp localsend_chat/apply_chat.py localsend/custom_build/apply_chat.py
+          cp localsend_chat/apply_receive_chat.py localsend/custom_build/apply_receive_chat.py
+          cp localsend_chat/apply_camera.py localsend/custom_build/apply_camera.py
+          (
+            cd localsend
+            UPSTREAM_SHA=$(git rev-parse HEAD)
+            cat > README_CUSTOM_CHAT.md <<EOF
+          # LocalSend — chat-style sending and receiving (custom build)
+
+          This branch contains the **complete LocalSend source tree** from
+          [localsend/localsend](https://github.com/localsend/localsend), with
+          the custom Windows and Android chat interface applied to actual source
+          files. It is not just a patch archive.
+
+          - Upstream base commit: \`$UPSTREAM_SHA\`
+          - Upstream license: see LICENSE
+          - Modified app code includes
+            \`app/lib/pages/chat_send_page.dart\`,
+            \`app/lib/pages/tabs/send_tab_vm.dart\`,
+            \`app/lib/provider/network/send_provider.dart\`,
+            \`app/lib/provider/network/server/controller/receive_controller.dart\`,
+            \`app/lib/pages/receive_page.dart\`,
+            \`app/lib/pages/progress_page.dart\`, and
+            \`app/lib/util/native/file_picker.dart\`.
+          - \`custom_build/\` contains the scripts used to reproduce these changes.
+
+          Features: device-specific conversation page, outgoing and incoming
+          message/file bubbles, stored local transfer history, photo capture on
+          Android, image selection and file sending on Windows, and click/tap to
+          zoom picture previews.
+
+          **Build requirements:** Flutter 3.41.9, Rust 1.97.1,
+          Windows x64 MSVC toolchain for Windows, or Android SDK + JDK 17 +
+          Rust Android arm64 target for Android.
+
+          Typical build commands (after platform prerequisites and Flutter setup):
+
+          \`\`\`sh
+          cd app
+          flutter pub get
+          dart format lib/pages/chat_send_page.dart lib/pages/receive_page.dart lib/pages/progress_page.dart lib/pages/tabs/send_tab_vm.dart lib/provider/network/send_provider.dart lib/provider/network/server/controller/receive_controller.dart lib/util/native/file_picker.dart
+          flutter analyze
+          flutter build windows --release
+          # Or on Android:
+          flutter build apk --release --split-per-abi --target-platform android-arm64
+          \`\`\`
+
+          Android release signing must be configured with your own key.
+          Windows unsigned EXEs may trigger Microsoft SmartScreen warnings.
+          No private signing keys or credentials are stored here.
+
+          This remains a LocalSend-based file transfer client: messages use the
+          existing file transfer protocol, and history is stored locally rather
+          than synchronized between devices.
+          EOF
+          )
+      - name: Push complete modified source to dedicated Test branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd localsend
+          git config user.name "LocalSend Chat Source Publisher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: complete LocalSend Android and Windows chat-source implementation"
+          git remote add test "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push test HEAD:refs/heads/chatgpt/localsend-chat-full-source-20261031
+          echo "Full source pushed to https://github.com/${GITHUB_REPOSITORY}/tree/chatgpt/localsend-chat-full-source-20261031"
