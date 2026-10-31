@@ -473,7 +473,12 @@ class ReceiveController {
       if (!hasError &&
           session.sender.fingerprint.isNotEmpty &&
           activeChatFingerprint.value == session.sender.fingerprint) {
-        Future.delayed(Duration.zero, closeSession);
+        Future.delayed(Duration.zero, () {
+          // Another incoming request may already have replaced this session.
+          if (server.getStateOrNull()?.session?.sessionId == session.sessionId) {
+            closeSession();
+          }
+        });
         _logger.info('Received attachments inline without navigating away from chat.');
         return;
       }
