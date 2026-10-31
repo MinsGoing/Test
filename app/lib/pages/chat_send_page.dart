@@ -13,9 +13,9 @@ import 'package:localsend_app/model/cross_file.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/selection/selected_sending_files_provider.dart';
-import 'package:localsend_app/util/native/open_file.dart';
 import 'package:localsend_app/util/native/channel/android_channel.dart' as android_channel;
 import 'package:localsend_app/util/native/cross_file_converters.dart';
+import 'package:localsend_app/util/native/open_file.dart' as native_open_file;
 import 'package:localsend_isolates/model/device.dart';
 import 'package:localsend_isolates/model/file_type.dart';
 import 'package:localsend_isolates/model/session_status.dart';
@@ -688,7 +688,7 @@ class _ChatSendPageState extends State<ChatSendPage> with Refena {
       (entry) => entry.name == item.type,
       orElse: () => FileType.other,
     );
-    if (mounted) await openFile(context, type, path);
+    if (mounted) await native_open_file.openFile(context, type, path);
   }
 
   Future<void> _showImageViewer(String path, {String? originalPath}) async {
