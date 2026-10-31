@@ -87,6 +87,6 @@ send.write_text(src)
 chat = Path('app/lib/pages/chat_send_page.dart')
 chat.parent.mkdir(parents=True, exist_ok=True)
 text = Path('chat_send_page.dart').read_text()
-text = text.replace('File(path),', 'File(path!),')
+# No conversion needed: flow analysis promotes non-null image paths.
 chat.write_text(text)
 print('Chat-style sending integrated into app.')
